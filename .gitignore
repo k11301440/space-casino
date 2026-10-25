@@ -1,0 +1,16 @@
+*.iml
+.gradle
+.kotlin
+/local.properties
+/.idea/
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+dump.xml
+screen.png
+screen_state.png
+game_clear_screen.png
+
