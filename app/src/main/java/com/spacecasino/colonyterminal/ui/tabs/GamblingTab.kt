@@ -28,7 +28,8 @@ import com.spacecasino.colonyterminal.ui.components.*
 enum class CasinoGame(val title: String) {
     ROULETTE("ルーレット"),
     HIGHLOW("ハイ＆ロー"),
-    SLOT("ネオ・スロット")
+    SLOT("ネオ・スロット"),
+    INTEL("情報屋")
 }
 
 @Composable
@@ -79,6 +80,7 @@ fun GamblingTab(
                 CasinoGame.ROULETTE -> RouletteView(state, viewModel)
                 CasinoGame.HIGHLOW -> HighLowView(state, viewModel)
                 CasinoGame.SLOT -> SlotView(state, viewModel)
+                CasinoGame.INTEL -> IntelView(state, viewModel)
             }
         }
     }
@@ -517,5 +519,86 @@ private fun ReelBox(text: String) {
             fontSize = 18.sp,
             fontFamily = FontFamily.Monospace
         )
+    }
+}
+
+@Composable
+private fun IntelView(state: GameState, viewModel: GameViewModel) {
+    val colors = LocalTerminalColors.current
+    val scrollState = rememberScrollState()
+    var intelMessage by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        TerminalPanel(title = "裏カジノの情報屋") {
+            Text(
+                text = "薄暗い個室で、顔を伏せた男が端末を叩いている。「次の市場レジームの筋を知りたいか? 2,500 CRで教えてやる」と低く囁いた。",
+                color = colors.textPrimary,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 17.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "カジノのゲームは長期では必ず負ける。しかし、この男が売る情報だけは本物だ。次のレジームを先読みし、恐慌前に安全資産へ避難するか、好況前に株を仕込むか。それが勝負の分かれ目になる。",
+                color = colors.textSecondary,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 16.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            TerminalButton(
+                text = "情報を買う (2,500 CR)",
+                onClick = { intelMessage = viewModel.buyIntel().message },
+                enabled = state.credits >= 2500L,
+                isPrimary = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            intelMessage?.let { msg ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = msg,
+                    color = colors.positive,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 17.sp
+                )
+            }
+        }
+
+        TerminalPanel(title = "最近の情報屋報告") {
+            val intelNews = state.news.filter { it.kind == "情報" }.take(4)
+            if (intelNews.isEmpty()) {
+                Text(
+                    text = "まだ報告はない。",
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            } else {
+                intelNews.forEach { item ->
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                        Text(
+                            text = "Day ${item.day} ${item.headline}",
+                            color = colors.primary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = item.body,
+                            color = colors.textPrimary,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
+        }
     }
 }

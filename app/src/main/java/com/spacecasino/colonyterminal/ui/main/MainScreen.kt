@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.spacecasino.colonyterminal.model.MarketRegime
 import com.spacecasino.colonyterminal.model.ThemeMode
 import com.spacecasino.colonyterminal.theme.ColonyAssetTerminalTheme
 import com.spacecasino.colonyterminal.theme.CrtScanlineOverlay
@@ -54,6 +55,9 @@ fun MainScreen(
                     day = state.day,
                     cash = state.credits,
                     totalNetWorth = state.totalNetWorth,
+                    marketRegime = state.marketRegime,
+                    regimeDaysLeft = state.regimeDaysLeft,
+                    hasPendingEvent = state.pendingEvent != null,
                     onAdvanceOneDay = { viewModel.advanceTime(1) },
                     onAdvanceMonth = { viewModel.advanceTime(30) }
                 )
@@ -93,7 +97,8 @@ fun MainScreen(
             dialogState?.let { dialog ->
                 CenterPopupDialog(
                     dialog = dialog,
-                    onDismiss = { viewModel.dismissDialog() }
+                    onDismiss = { viewModel.dismissDialog() },
+                    onEventOption = { index -> viewModel.resolveEvent(index) }
                 )
             }
         }
@@ -106,16 +111,27 @@ private fun TerminalGlobalHeader(
     day: Long,
     cash: Long,
     totalNetWorth: Long,
+    marketRegime: MarketRegime,
+    regimeDaysLeft: Int,
+    hasPendingEvent: Boolean,
     onAdvanceOneDay: () -> Unit,
     onAdvanceMonth: () -> Unit
 ) {
     val colors = LocalTerminalColors.current
 
+    val regimeColor = when (marketRegime) {
+        MarketRegime.BOOM -> colors.positive
+        MarketRegime.STABLE -> colors.primary
+        MarketRegime.SLOWDOWN -> colors.textSecondary
+        MarketRegime.CRISIS -> colors.hazard
+    }
+    val headerBorderColor = if (hasPendingEvent || marketRegime == MarketRegime.CRISIS) colors.hazard else colors.border
+
     Surface(
         color = colors.surface,
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, colors.border)
+            .border(1.dp, headerBorderColor)
     ) {
         Column(
             modifier = Modifier
@@ -152,6 +168,31 @@ private fun TerminalGlobalHeader(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "REGIME:",
+                            color = colors.textSecondary,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "${marketRegime.displayName} (${regimeDaysLeft}日)",
+                            color = regimeColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        if (hasPendingEvent) {
+                            Text(
+                                text = "●EVENT",
+                                color = colors.hazard,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "手持ち現金",
                         color = colors.textSecondary,
@@ -234,7 +275,8 @@ private fun TerminalBottomBar(
 @Composable
 private fun CenterPopupDialog(
     dialog: GameDialogState,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onEventOption: (Int) -> Unit = {}
 ) {
     val colors = LocalTerminalColors.current
 
@@ -308,6 +350,69 @@ private fun CenterPopupDialog(
                         )
                         Text(
                             text = "宇宙歴 Day ${dialog.day}、総資産 ${formatCredits(dialog.netWorth)} にて、コロニー全域の統帥権を完全掌握しました！\nスラム街の粗大ゴミ置き場から始まったあなたの資産運用は、今や一つの天体都市を統治するに至りました。",
+                            color = colors.textPrimary,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = 18.sp
+                        )
+                    }
+                    is GameDialogState.EventChoice -> {
+                        Text(
+                            text = "【EVENT: 要判断】",
+                            color = colors.hazard,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = dialog.event.title,
+                            color = colors.primary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = dialog.event.description,
+                            color = colors.textPrimary,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = 18.sp
+                        )
+                        dialog.event.options.forEachIndexed { index, option ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, colors.border, RoundedCornerShape(4.dp))
+                                    .clickable { onEventOption(index) }
+                                    .padding(10.dp)
+                            ) {
+                                Text(
+                                    text = "▶ ${option.label}",
+                                    color = colors.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = option.description,
+                                    color = colors.textSecondary,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                        return@Dialog
+                    }
+                    is GameDialogState.IntelReport -> {
+                        Text(
+                            text = "【INTEL REPORT】",
+                            color = colors.secondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = dialog.message,
                             color = colors.textPrimary,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace,

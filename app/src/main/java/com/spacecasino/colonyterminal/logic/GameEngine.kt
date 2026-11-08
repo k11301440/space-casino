@@ -254,7 +254,9 @@ object GameEngine {
             Achievement("ACH_DECA_MILLION", "メガコーポ級資産家", "総純資産 10,000,000 CR を達成"),
             Achievement("ACH_BUY_FACILITY", "コロニーの地主", "初めてコロニー施設を購入する"),
             Achievement("ACH_CASINO_WIN", "勝負師の閃き", "カジノゲームで勝利する"),
-            Achievement("ACH_COLONY_MASTER", "アルカディア統帥者", "コロニー『アルカディア』を買収し完全独立を果たす")
+            Achievement("ACH_COLONY_MASTER", "アルカディア統帥者", "コロニー『アルカディア』を買収し完全独立を果たす"),
+            Achievement("ACH_INTEL", "情報屋と契約", "カジノの情報屋から市場情報を初めて購入する"),
+            Achievement("ACH_CRISIS_SURVIVOR", "恐慌を生き延びる", "恐慌レジームを1回乗り切る")
         )
 
         val initialLogs = listOf(
@@ -263,6 +265,16 @@ object GameEngine {
                 day = 1L,
                 category = "ストーリー",
                 message = "CAT-OS端末起動。初期資産 10,000 CR が設定されました。"
+            )
+        )
+
+        val initialNews = listOf(
+            NewsItem(
+                id = System.currentTimeMillis(),
+                day = 1L,
+                kind = "市場",
+                headline = "CAT-OS市場フィード接続",
+                body = "端末の市場フィードが復旧した。今後、景気レジームの変化や個別銘柄の材料が配信される。情報を先読みして資産を運用せよ。"
             )
         )
 
@@ -276,8 +288,84 @@ object GameEngine {
             facilities = initialFacilities,
             milestones = initialMilestones,
             achievements = initialAchievements,
-            logs = initialLogs
+            logs = initialLogs,
+            marketRegime = MarketRegime.STABLE,
+            regimeDaysLeft = 7,
+            nextRegime = sampleNextRegime(MarketRegime.STABLE),
+            news = initialNews
         )
+    }
+
+    private fun regimeDriftForStocks(regime: MarketRegime): Double = when (regime) {
+        MarketRegime.BOOM -> 0.006
+        MarketRegime.STABLE -> 0.0005
+        MarketRegime.SLOWDOWN -> -0.004
+        MarketRegime.CRISIS -> -0.012
+    }
+
+    private fun regimeDriftForFunds(regime: MarketRegime, fundId: String): Double {
+        val isBond = fundId == "FUND_BOND"
+        return when (regime) {
+            MarketRegime.BOOM -> if (isBond) 0.0003 else 0.0035
+            MarketRegime.STABLE -> if (isBond) 0.0004 else 0.0005
+            MarketRegime.SLOWDOWN -> if (isBond) 0.0006 else -0.002
+            MarketRegime.CRISIS -> if (isBond) 0.0008 else -0.006
+        }
+    }
+
+    private fun regimeFacilityMultiplier(regime: MarketRegime): Double = when (regime) {
+        MarketRegime.BOOM -> 1.15
+        MarketRegime.STABLE -> 1.0
+        MarketRegime.SLOWDOWN -> 0.9
+        MarketRegime.CRISIS -> 0.7
+    }
+
+    private fun regimeVolatilityMultiplier(regime: MarketRegime): Double = when (regime) {
+        MarketRegime.BOOM -> 1.2
+        MarketRegime.STABLE -> 1.0
+        MarketRegime.SLOWDOWN -> 1.3
+        MarketRegime.CRISIS -> 2.0
+    }
+
+    private fun sampleNextRegime(current: MarketRegime): MarketRegime {
+        val weights: List<Pair<MarketRegime, Int>> = when (current) {
+            MarketRegime.BOOM -> listOf(MarketRegime.BOOM to 5, MarketRegime.STABLE to 45, MarketRegime.SLOWDOWN to 40, MarketRegime.CRISIS to 10)
+            MarketRegime.STABLE -> listOf(MarketRegime.BOOM to 30, MarketRegime.STABLE to 30, MarketRegime.SLOWDOWN to 30, MarketRegime.CRISIS to 10)
+            MarketRegime.SLOWDOWN -> listOf(MarketRegime.BOOM to 25, MarketRegime.STABLE to 40, MarketRegime.SLOWDOWN to 20, MarketRegime.CRISIS to 15)
+            MarketRegime.CRISIS -> listOf(MarketRegime.BOOM to 10, MarketRegime.STABLE to 55, MarketRegime.SLOWDOWN to 25, MarketRegime.CRISIS to 10)
+        }
+        val total = weights.sumOf { it.second }
+        var roll = Random.nextInt(total)
+        for ((regime, w) in weights) {
+            if (roll < w) return regime
+            roll -= w
+        }
+        return MarketRegime.STABLE
+    }
+
+    private fun addNews(state: GameState, kind: String, headline: String, body: String): GameState {
+        val item = NewsItem(
+            id = System.currentTimeMillis() + Random.nextLong(10000),
+            day = state.day,
+            kind = kind,
+            headline = headline,
+            body = body
+        )
+        return state.copy(news = (listOf(item) + state.news).take(30))
+    }
+
+    private fun regimeHintHeadline(regime: MarketRegime): String = when (regime) {
+        MarketRegime.BOOM -> "連邦議会で金融緩和法案が審議入り。関係者は「大型景気対策は時間の問題」と楽観"
+        MarketRegime.STABLE -> "コロニー経済は平静。アナリストは「現状維持が続く」と分析"
+        MarketRegime.SLOWDOWN -> "鉱山労組が賃上げ交渉決裂を警告。資源セクターに減速の影"
+        MarketRegime.CRISIS -> "観測所が「太陽フレアの連鎖により通信網崩壊の危険」と異例の警告"
+    }
+
+    private fun regimeTransitionHeadline(regime: MarketRegime): String = when (regime) {
+        MarketRegime.BOOM -> "【速報】コロニー景気、正式に好況局面へ。市場は活気を取り戻す"
+        MarketRegime.STABLE -> "【速報】市場混乱は収束。コロニー経済は安定期に回帰"
+        MarketRegime.SLOWDOWN -> "【速報】景気減速が確定。セクター別に資金逃避が進行"
+        MarketRegime.CRISIS -> "【速報】市場パニック発生！ 恐慌レジームに突入"
     }
 
     private fun generateInitialHistory(base: Double, count: Int, vol: Double): List<Double> {
@@ -329,9 +417,12 @@ object GameEngine {
         val cappedSeconds = elapsedSeconds.coerceAtMost(7 * 24 * 3600L)
         val elapsedHours = cappedSeconds / 3600.0
 
-        // 銀行預金オフライン利息 (24時間で約1.0% = 1時間あたり約 0.0416%)
-        val bankRatePerHour = 0.01 / 24.0
-        val rawBankEarned = (state.bank.deposited * bankRatePerHour * elapsedHours)
+        // 銀行預金オフライン利息 (50万CRまで1%/日、超過分0.05%/日の段階金利)
+        val lowTier = state.bank.deposited.coerceAtMost(500000L)
+        val highTier = (state.bank.deposited - 500000L).coerceAtLeast(0L)
+        val dailyBankRate = (lowTier * 0.01 + highTier * 0.0005) /
+            if (state.bank.deposited > 0L) state.bank.deposited.toDouble() else 1.0
+        val rawBankEarned = (state.bank.deposited * dailyBankRate / 24.0 * elapsedHours)
         val bankEarned = if (state.bank.deposited > 0 && elapsedHours >= 1.0) {
             Math.max(1L, Math.round(rawBankEarned))
         } else {
@@ -397,28 +488,68 @@ object GameEngine {
         for (d in 1..daysToAdvance) {
             val currentDay = curState.day + 1
 
-            // 1. 施設収入
+            val newLogs = curState.logs.toMutableList()
+            var newsState = curState
+
+            var regime = curState.marketRegime
+            var regimeDaysLeft = curState.regimeDaysLeft
+            var nextRegime = curState.nextRegime
+            var crisisWeathered = curState.crisisWeathered
+
+            if (regimeDaysLeft <= 1) {
+                val previousRegime = regime
+                regime = nextRegime
+                nextRegime = sampleNextRegime(regime)
+                regimeDaysLeft = Random.nextInt(5, 13)
+                if (previousRegime == MarketRegime.CRISIS) crisisWeathered += 1
+                newsState = addNews(newsState.copy(day = currentDay), "レジーム", regimeTransitionHeadline(regime), "コロニー市場のレジームが「${regime.displayName}」へ移行した。${regime.description}")
+                newLogs.add(0, LogEntry(
+                    id = System.currentTimeMillis() + Random.nextLong(1000),
+                    day = currentDay,
+                    category = "市場",
+                    message = "【レジーム移行】市場は「${regime.displayName}」へ移行。資産配分を見直すべきだ。"
+                ))
+            } else {
+                regimeDaysLeft -= 1
+                if (Random.nextDouble() < 0.25) {
+                    newsState = addNews(newsState.copy(day = currentDay), "レジーム", regimeHintHeadline(nextRegime), "専門家の間では次のレジームが「${nextRegime.displayName}」であるとの見方が広がっている。早めの備えが肝心だ。")
+                }
+            }
+
+            val facMultiplier = regimeFacilityMultiplier(regime)
+            val volMultiplier = regimeVolatilityMultiplier(regime)
+
+            // 1. 施設収入 (停止中は0、レジーム倍率適用)
             var dayFacilityIncome = 0L
-            curState.facilities.forEach { fac ->
-                if (fac.isOwned) {
+            val updatedFacilities = curState.facilities.map { fac ->
+                val nextOutage = if (fac.isOwned && fac.outageDays > 0) fac.outageDays - 1 else fac.outageDays
+                if (fac.isOwned && fac.outageDays <= 0) {
                     val income = if (fac.type == FacilityType.PORT) {
-                        // 貿易港は日によってランダム変動 (70%〜150%)
                         (fac.currentDailyIncome * Random.nextDouble(0.7, 1.5)).toLong()
                     } else {
                         fac.currentDailyIncome
                     }
-                    dayFacilityIncome += (income * labBonusMultiplier).toLong()
+                    dayFacilityIncome += (income * facMultiplier * labBonusMultiplier).toLong()
                 }
+                if (nextOutage != fac.outageDays) fac.copy(outageDays = nextOutage) else fac
             }
+            val facilityUpkeep = (dayFacilityIncome * 0.03).toLong()
 
-            // 2. 銀行利息
-            val bankInterest = (curState.bank.deposited * curState.bank.dailyInterestRate).toLong()
+            // 2. 銀行利息 (恐慌中はゼロ。50万CRまで1%/日、超過分は0.05%/日の段階金利)
+            val bankInterest = if (regime == MarketRegime.CRISIS) {
+                0L
+            } else {
+                val dep = curState.bank.deposited
+                val lowTier = dep.coerceAtMost(500000L)
+                val highTier = (dep - 500000L).coerceAtLeast(0L)
+                (lowTier * 0.01).toLong() + (highTier * 0.0005).toLong()
+            }
             val newBankDeposited = curState.bank.deposited + bankInterest
 
-            // 3. 投資信託の価格変動
+            // 3. 投資信託の価格変動 (レジーム連動ドリフト)
             val updatedFunds = curState.mutualFunds.map { fund ->
-                val dailyExpected = fund.expectedAnnualReturn / 365.0
-                val dailyVol = fund.riskVolatility
+                val dailyExpected = fund.expectedAnnualReturn / 365.0 + regimeDriftForFunds(regime, fund.id)
+                val dailyVol = fund.riskVolatility * volMultiplier
                 val randomFactor = nextGaussian() * dailyVol
                 val changePercent = dailyExpected + randomFactor
                 val newNav = (fund.nav * (1.0 + changePercent)).coerceAtLeast(100.0)
@@ -427,36 +558,55 @@ object GameEngine {
                 fund.copy(nav = roundedNav, history = newHistory)
             }
 
-            // 4. 株式価格変動
+            // 4. 株式価格変動 (事前告知ショック + レジームドリフト)
             val updatedStocks = curState.stocks.map { stock ->
-                val vol = stock.volatility
-                // たまに市場ニュース（好材料または悪材料）
-                val newsFactor = if (Random.nextDouble() < 0.05) {
-                    Random.nextDouble(-0.25, 0.35)
-                } else {
-                    nextGaussian() * vol
-                }
-                val change = (stock.currentPrice * newsFactor).toLong()
-                val newPrice = (stock.currentPrice + change).coerceAtLeast(10L)
+                val shock = stock.pendingShockPct
+                val drift = regimeDriftForStocks(regime)
+                val noise = nextGaussian() * stock.volatility * volMultiplier
+                val changePct = shock + drift + noise
+                val newPrice = ((stock.currentPrice * (1.0 + changePct)).toLong()).coerceAtLeast(10L)
                 val newHistory = (stock.history + newPrice).takeLast(20)
-                stock.copy(previousPrice = stock.currentPrice, currentPrice = newPrice, history = newHistory)
+                stock.copy(previousPrice = stock.currentPrice, currentPrice = newPrice, history = newHistory, pendingShockPct = 0.0)
+            }
+            var shockSymbol: String? = null
+            var shockPct = 0.0
+            if (Random.nextDouble() < 0.12) {
+                val target = updatedStocks[Random.nextInt(updatedStocks.size)]
+                val raw = if (Random.nextBoolean()) Random.nextDouble(0.06, 0.18) else -Random.nextDouble(0.06, 0.18)
+                shockPct = Math.round(raw * 1000.0) / 1000.0
+                shockSymbol = target.symbol
+            }
+            val stocksWithShock = if (shockSymbol != null) {
+                updatedStocks.map { if (it.symbol == shockSymbol) it.copy(pendingShockPct = shockPct) else it }
+            } else {
+                updatedStocks
+            }
+            if (shockSymbol != null) {
+                val dirText = if (shockPct > 0) "急騰" else "急落"
+                newsState = addNews(newsState.copy(day = currentDay), "銘柄", "${shockSymbol}に重大材料", "${shockSymbol}の決算・認可関連で「${dirText}」が観測されているという報道。翌日の値動きに注意。")
             }
 
             // 5. FXレート変動 & ロスカット判定
             val updatedFxPairs = curState.fxPairs.map { pair ->
-                val changePercent = nextGaussian() * 0.02
+                val fxDrift = when (regime) {
+                    MarketRegime.CRISIS -> if (pair.symbol == "CR/SOL") 0.004 else 0.002
+                    MarketRegime.BOOM -> -0.001
+                    else -> 0.0
+                }
+                val changePercent = fxDrift + nextGaussian() * 0.02 * volMultiplier
                 val newRate = (pair.currentRate * (1.0 + changePercent)).coerceAtLeast(0.01)
                 val roundedRate = Math.round(newRate * 10000.0) / 10000.0
                 val newHistory = (pair.history + roundedRate).takeLast(20)
                 pair.copy(previousRate = pair.currentRate, currentRate = roundedRate, history = newHistory)
             }
 
-            // ポジションの未実現損益とロスカットチェック
             val remainingPositions = mutableListOf<FxPosition>()
             var fxCashAdjustment = 0L
-            val newLogs = curState.logs.toMutableList()
+            var carryCost = 0L
 
             curState.fxPositions.forEach { pos ->
+                val notional = (pos.entryRate * pos.lots * 1000).toLong()
+                carryCost += (notional * 0.0005 * pos.leverage).toLong()
                 val pair = updatedFxPairs.find { it.symbol == pos.pairSymbol }
                 if (pair != null) {
                     val priceDiff = if (pos.direction == FxDirection.LONG) {
@@ -497,19 +647,47 @@ object GameEngine {
                 ))
             }
 
-            val newCredits = curState.credits + dayFacilityIncome + fxCashAdjustment + basicIncome
+            // 7. 生活コスト (純資産10万CR超の分に対し0.2%/日)
+            val livingCost = if (curState.totalNetWorth > 100000L) {
+                ((curState.totalNetWorth - 100000L) * 0.002).toLong()
+            } else {
+                0L
+            }
+
+            // 8. 判断型イベントの発生
+            var pendingEvent = curState.pendingEvent
+            if (pendingEvent == null && Random.nextDouble() < 0.18) {
+                pendingEvent = pickRandomEvent()
+                newsState = addNews(newsState.copy(day = currentDay), "イベント", pendingEvent.title, "コロニーから対応が求められている。[イベント]パネルで判断せよ。")
+                newLogs.add(0, LogEntry(
+                    id = System.currentTimeMillis() + Random.nextLong(1000),
+                    day = currentDay,
+                    category = "イベント",
+                    message = "【要判断】${pendingEvent.title}"
+                ))
+            }
+
+            val newCredits = (curState.credits + dayFacilityIncome - facilityUpkeep + fxCashAdjustment + basicIncome - carryCost - livingCost).coerceAtLeast(0L)
 
             curState = curState.copy(
                 day = currentDay,
                 credits = newCredits,
                 bank = curState.bank.copy(deposited = newBankDeposited),
                 mutualFunds = updatedFunds,
-                stocks = updatedStocks,
+                stocks = stocksWithShock,
                 fxPairs = updatedFxPairs,
                 fxPositions = remainingPositions,
+                facilities = updatedFacilities,
+                marketRegime = regime,
+                regimeDaysLeft = regimeDaysLeft,
+                nextRegime = nextRegime,
+                crisisWeathered = crisisWeathered,
+                pendingEvent = pendingEvent,
+                news = newsState.news,
                 logs = newLogs.take(100)
             )
         }
+
 
         // 施設・利息等のサマリー集計
         val totalWorth = curState.totalNetWorth
@@ -861,17 +1039,21 @@ object GameEngine {
         if (betAmount <= 0 || state.credits < betAmount) {
             return state to RouletteResult(1, false, 0L, 0L, "クレジットが不足しています。")
         }
+        val maxBet = (state.credits * 0.2).toLong()
+        if (betAmount > maxBet) {
+            return state to RouletteResult(1, false, 0L, 0L, "1回のベットは所持金の20%までに制限されている。")
+        }
 
-        // 0〜13のルーレットホイール
-        // 0 = HAZARD (確率約 5.5%): 大負けハザード
+        // 0〜12のルーレットホイール
+        // 0 = HAZARD (確率約 7.7%): 大負けハザード
         // 1〜12: 通常ナンバー (奇数: 赤, 偶数: 黒)
-        val roll = Random.nextInt(0, 14) // 0..13 (13はボーナススロット)
+        val roll = Random.nextInt(0, 13)
         val isHazard = (roll == 0)
 
         var payout = 0L
         var winDesc = ""
 
-        if (isHazard) {
+        if (isHazard && betType != RouletteBetType.HAZARD_LUCK) {
             // 大負けペナルティ: 賭け金没収に加え、ペナルティショック (さらに賭け金の20%喪失)
             val penalty = (betAmount * 0.2).toLong()
             val totalLoss = betAmount + penalty
@@ -888,66 +1070,62 @@ object GameEngine {
                 isHazard = true,
                 payout = 0L,
                 netGain = -totalLoss,
-                message = "【HAZARD】過電流サージ発生！チップ全損害およびペナルティ (-${totalLoss} CR)"
+                message = "【HAZARD】過電流サージ発生！チップ全損およびペナルティ (-${totalLoss} CR)"
             )
             return state.copy(credits = newCredits, logs = (listOf(log) + state.logs).take(100)) to result
         }
 
-        // 期待値約104%の配当設計
+        // 期待値約92%の配当設計 (カジノは長期的に負ける娯楽。儲けは市場で)
         when (betType) {
             RouletteBetType.RED -> {
-                // 赤: 奇数 (1,3,5,7,9,11)
                 val isRed = (roll in 1..12) && (roll % 2 != 0)
-                if (isRed || roll == 13) {
-                    payout = (betAmount * 2.15).toLong() // 2.15倍
+                if (isRed) {
+                    payout = (betAmount * 2.0).toLong()
                     winDesc = "的中！赤 [${roll}] (配当: ${payout} CR)"
                 }
             }
             RouletteBetType.BLACK -> {
-                // 黒: 偶数 (2,4,6,8,10,12)
                 val isBlack = (roll in 1..12) && (roll % 2 == 0)
-                if (isBlack || roll == 13) {
-                    payout = (betAmount * 2.15).toLong()
+                if (isBlack) {
+                    payout = (betAmount * 2.0).toLong()
                     winDesc = "的中！黒 [${roll}] (配当: ${payout} CR)"
                 }
             }
             RouletteBetType.HIGH -> {
-                // 7〜12
-                if (roll in 7..12 || roll == 13) {
-                    payout = (betAmount * 2.15).toLong()
+                if (roll in 7..12) {
+                    payout = (betAmount * 2.0).toLong()
                     winDesc = "的中！HIGH [${roll}] (配当: ${payout} CR)"
                 }
             }
             RouletteBetType.LOW -> {
-                // 1〜6
-                if (roll in 1..6 || roll == 13) {
-                    payout = (betAmount * 2.15).toLong()
+                if (roll in 1..6) {
+                    payout = (betAmount * 2.0).toLong()
                     winDesc = "的中！LOW [${roll}] (配当: ${payout} CR)"
                 }
             }
             RouletteBetType.NUMBER_7 -> {
-                // 単数7
-                if (roll == 7 || roll == 13) {
-                    payout = (betAmount * 13.5).toLong() // 13.5倍
+                if (roll == 7) {
+                    payout = (betAmount * 12.0).toLong()
                     winDesc = "大当たり！LUCKY NUMBER 7 的中！ (配当: ${payout} CR)"
                 }
             }
             RouletteBetType.NUMBER_12 -> {
-                if (roll == 12 || roll == 13) {
-                    payout = (betAmount * 13.5).toLong()
+                if (roll == 12) {
+                    payout = (betAmount * 12.0).toLong()
                     winDesc = "大当たり！NUMBER 12 的中！ (配当: ${payout} CR)"
                 }
             }
             RouletteBetType.HAZARD_LUCK -> {
-                // 逆張りハザード回避保険: ハザード以外なら1.1倍
-                payout = (betAmount * 1.12).toLong()
-                winDesc = "ハザード回避成功！ [${roll}] (配当: ${payout} CR)"
+                if (isHazard) {
+                    payout = (betAmount * 12.0).toLong()
+                    winDesc = "逆張り的中！HAZARD [0] を捉えた！ (配当: ${payout} CR)"
+                }
             }
         }
 
         val netGain = payout - betAmount
         val newCredits = state.credits + netGain
-        val msg = if (payout > 0) winDesc else "ハズレ... 出目: [${if (roll == 13) "BONUS" else roll.toString()}]"
+        val msg = if (payout > 0) winDesc else "ハズレ... 出目: [${roll}]"
 
         val log = LogEntry(
             id = System.currentTimeMillis(),
@@ -981,6 +1159,8 @@ object GameEngine {
 
     fun startHighLow(state: GameState, betAmount: Long): GameState {
         if (betAmount <= 0 || state.credits < betAmount) return state
+        val maxBet = (state.credits * 0.2).toLong()
+        if (betAmount > maxBet) return state
         val initialRoll = Random.nextInt(2, 13)
         val log = LogEntry(
             id = System.currentTimeMillis(),
@@ -1035,7 +1215,7 @@ object GameEngine {
         if (isWin) {
             val newStreak = game.streak + 1
             // 期待値プラスの倍率掛け (連続成功で倍率上昇)
-            val multiplier = if (choice == HighLowChoice.SEVEN) 3.5 else 1.6
+            val multiplier = if (choice == HighLowChoice.SEVEN) 5.0 else 2.0
             val newBet = (game.currentBet * multiplier).toLong()
 
             val updatedGame = game.copy(
@@ -1092,11 +1272,11 @@ object GameEngine {
     // 3. ネオ・スロット
     enum class SlotSymbol(val label: String, val multiplier: Double) {
         SEVEN("777", 60.0),
-        BAR("BAR", 25.0),
+        BAR("BAR", 20.0),
         ORE("ORE", 12.0),
-        ENERGY("ENG", 6.0),
-        CHIP("CHP", 3.0),
-        SKULL("SKULL", -2.0) // 大負けハザード
+        ENERGY("ENG", 5.0),
+        CHIP("CHP", 2.5),
+        SKULL("SKULL", -2.0)
     }
 
     data class SlotResult(
@@ -1111,6 +1291,10 @@ object GameEngine {
     fun playSlot(state: GameState, betAmount: Long): Pair<GameState, SlotResult> {
         if (betAmount <= 0 || state.credits < betAmount) {
             return state to SlotResult(SlotSymbol.CHIP, SlotSymbol.CHIP, SlotSymbol.CHIP, 0L, 0L, "クレジット不足です。")
+        }
+        val maxBet = (state.credits * 0.2).toLong()
+        if (betAmount > maxBet) {
+            return state to SlotResult(SlotSymbol.CHIP, SlotSymbol.CHIP, SlotSymbol.CHIP, 0L, 0L, "1回のベットは所持金の20%までに制限されている。")
         }
 
         // リール確率プール (期待値ややプラス + SKULLハザード)
@@ -1133,7 +1317,7 @@ object GameEngine {
 
         if (r1 == SlotSymbol.SKULL && r2 == SlotSymbol.SKULL && r3 == SlotSymbol.SKULL) {
             // ドクロ3つ揃い: 大負けハザード！ベット額の3倍没収
-            val penalty = betAmount * 3
+            val penalty = betAmount * 2
             val newCredits = (state.credits - penalty).coerceAtLeast(0L)
             val log = LogEntry(
                 id = System.currentTimeMillis(),
@@ -1154,7 +1338,7 @@ object GameEngine {
             // 2つ揃い小当たり (期待値を支える)
             val match = if (r1 == r2 || r1 == r3) r1 else r2
             if (match != SlotSymbol.SKULL) {
-                payout = (betAmount * 1.5).toLong()
+                payout = (betAmount * 2.5).toLong()
                 msg = "小当たり！[${match.label}] 2つ揃い (+${payout} CR)"
             } else {
                 msg = "ドクロ警戒... ハズレ"
@@ -1179,6 +1363,140 @@ object GameEngine {
         return updateAchievements(nextState, casinoWon = (payout > 0)) to res
     }
 
+    // --- 判断型イベント ---
+    private fun pickRandomEvent(): GameEvent {
+        val events = listOf(
+            GameEvent(
+                id = "EVT_ASTEROID",
+                title = "小惑星接近警報",
+                description = "無認可の小惑星がコロニー軌道に接近。評議会は対応を求めている。衝突すれば施設は壊滅的な停止を余儀なくされる。",
+                options = listOf(
+                    EventOption("避難コストを負担する", "純資産の1%を支出するが、施設は無傷で済む。", creditsDeltaPercentOfNetWorth = -0.01),
+                    EventOption("警告を無視する", "支出ゼロ。しかし全所有施設が3日間停止する。", facilityOutageDays = 3)
+                )
+            ),
+            GameEvent(
+                id = "EVT_STRIKE",
+                title = "施設労組の賃上げ交渉決裂",
+                description = "宇宙農園と発電所の労働組合が賃上げを要求。決裂すればストライキで施設が止まる。",
+                options = listOf(
+                    EventOption("賃上げ要求を呑む", "純資産の2%を支出するが、操業は継続する。", creditsDeltaPercentOfNetWorth = -0.02),
+                    EventOption("要求を拒否する", "支出ゼロ。ただし全所有施設が4日間ストライキで停止する。", facilityOutageDays = 4)
+                )
+            ),
+            GameEvent(
+                id = "EVT_SURVEYOR",
+                title = "探査請負人の来訪",
+                description = "古い観測データを持つ探査請負人が「次の市場レジーム」を3,000 CRで売ると持ちかけてきた。",
+                options = listOf(
+                    EventOption("3,000 CRで購入する", "次のレジームが開示される。恐慌なら安い買い物だ。", creditsDelta = -3000L, revealsNextRegime = true),
+                    EventOption("話を断る", "情報は得られない。", creditsDelta = 0L)
+                )
+            ),
+            GameEvent(
+                id = "EVT_HACKER",
+                title = "端末の脆弱性を発見",
+                description = "CAT-OSに不正アクセスの痕跡。放置すれば所持金を掠われる恐れがある。",
+                options = listOf(
+                    EventOption("2,000 CRで修正する", "セキュリティパッチを適用する。", creditsDelta = -2000L),
+                    EventOption("放置する", "所持現金の10%を盗まれる。", creditsDeltaPercentOfCredits = -0.10)
+                )
+            ),
+            GameEvent(
+                id = "EVT_REPAIR",
+                title = "老朽化した施設設備",
+                description = "点検で全所有施設の設備劣化が判明。今すぐ直すか、壊れるまで使い倒すか。",
+                options = listOf(
+                    EventOption("5,000 CRで緊急修理する", "施設の停止を回避する。", creditsDelta = -5000L),
+                    EventOption("様子を見る", "全所有施設が2日間停止する。", facilityOutageDays = 2)
+                )
+            )
+        )
+        return events[Random.nextInt(events.size)]
+    }
+
+    fun resolveEvent(state: GameState, optionIndex: Int): GameState {
+        val event = state.pendingEvent ?: return state
+        val option = event.options.getOrNull(optionIndex) ?: return state
+
+        var delta = option.creditsDelta
+        if (option.creditsDeltaPercentOfNetWorth != 0.0) {
+            delta = (state.totalNetWorth * option.creditsDeltaPercentOfNetWorth).toLong()
+        }
+        if (option.creditsDeltaPercentOfCredits != 0.0) {
+            delta = (state.credits * option.creditsDeltaPercentOfCredits).toLong()
+        }
+        val newCredits = (state.credits + delta).coerceAtLeast(0L)
+
+        val updatedFacilities = if (option.facilityOutageDays > 0) {
+            state.facilities.map { if (it.isOwned) it.copy(outageDays = option.facilityOutageDays) else it }
+        } else {
+            state.facilities
+        }
+
+        var resultState = state.copy(
+            credits = newCredits,
+            facilities = updatedFacilities,
+            pendingEvent = null
+        )
+
+        var logMsg = "【イベント判断】${event.title} → ${option.label}"
+        if (option.revealsNextRegime) {
+            resultState = addNews(resultState, "情報", "次期レジーム開示: ${state.nextRegime.displayName}", "探査請負人の報告により、次のレジームが「${state.nextRegime.displayName}」であることが判明した。${state.nextRegime.description}")
+            logMsg += " (次のレジーム: ${state.nextRegime.displayName})"
+        }
+
+        val log = LogEntry(
+            id = System.currentTimeMillis(),
+            day = state.day,
+            category = "イベント",
+            message = logMsg,
+            amountChange = delta
+        )
+        resultState = resultState.copy(logs = (listOf(log) + resultState.logs).take(100))
+        return updateAchievements(resultState)
+    }
+
+    // --- 情報屋 (カジノの市場情報販売) ---
+    data class IntelResult(
+        val message: String,
+        val success: Boolean
+    )
+
+    fun buyIntel(state: GameState): Pair<GameState, IntelResult> {
+        val cost = 2500L
+        if (state.credits < cost) {
+            return state to IntelResult("情報料 2,500 CR が不足している。", false)
+        }
+
+        var newState = state.copy(
+            credits = state.credits - cost,
+            intelPurchasedCount = state.intelPurchasedCount + 1
+        )
+
+        val regimeMsg = "次のレジームは「${state.nextRegime.displayName}」。${state.nextRegime.description}"
+        newState = addNews(newState, "情報", "情報屋の報告: 次期レジーム", regimeMsg)
+
+        var extra = ""
+        val shockStocks = newState.stocks.filter { it.pendingShockPct != 0.0 }
+        if (shockStocks.isNotEmpty()) {
+            val shockStock = shockStocks[Random.nextInt(shockStocks.size)]
+            val dir = if (shockStock.pendingShockPct > 0) "急騰" else "急落"
+            extra = " さらに銘柄情報: ${shockStock.symbol} は明日${dir}の観測。"
+            newState = addNews(newState, "情報", "情報屋の報告: ${shockStock.symbol}", "${shockStock.symbol} に重大材料。明日は${dir}が観測されている。")
+        }
+
+        val log = LogEntry(
+            id = System.currentTimeMillis(),
+            day = state.day,
+            category = "情報",
+            message = "情報屋に ${cost} CR 支払い、市場情報を購入。${regimeMsg}${extra}",
+            amountChange = -cost
+        )
+        newState = newState.copy(logs = (listOf(log) + newState.logs).take(100))
+        return updateAchievements(newState) to IntelResult("情報屋: ${regimeMsg}${extra}", true)
+    }
+
     // --- 実績の更新 ---
     fun updateAchievements(state: GameState, casinoWon: Boolean = false): GameState {
         if (state.achievements.isEmpty()) return state
@@ -1198,6 +1516,8 @@ object GameEngine {
                     "ACH_BUY_FACILITY" -> state.facilities.any { it.isOwned }
                     "ACH_CASINO_WIN" -> casinoWon
                     "ACH_COLONY_MASTER" -> state.colonyPurchased
+                    "ACH_INTEL" -> state.intelPurchasedCount > 0
+                    "ACH_CRISIS_SURVIVOR" -> state.crisisWeathered > 0
                     else -> false
                 }
                 if (conditionMet) {

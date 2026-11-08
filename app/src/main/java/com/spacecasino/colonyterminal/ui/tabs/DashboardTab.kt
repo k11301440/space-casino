@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spacecasino.colonyterminal.model.FacilityType
 import com.spacecasino.colonyterminal.model.GameState
+import com.spacecasino.colonyterminal.model.MarketRegime
 import com.spacecasino.colonyterminal.theme.LocalTerminalColors
 import com.spacecasino.colonyterminal.ui.GameViewModel
 import com.spacecasino.colonyterminal.ui.components.*
@@ -73,6 +74,126 @@ fun DashboardTab(
                 statusText = charStatus,
                 scale = 3.5f
             )
+        }
+
+        // 景気レジーム状況
+        val regimePanelColor = when (state.marketRegime) {
+            MarketRegime.BOOM -> colors.positive
+            MarketRegime.STABLE -> colors.primary
+            MarketRegime.SLOWDOWN -> colors.textSecondary
+            MarketRegime.CRISIS -> colors.hazard
+        }
+        TerminalPanel(title = "市場レジーム", borderColor = regimePanelColor) {
+            val regimeColor = when (state.marketRegime) {
+                MarketRegime.BOOM -> colors.positive
+                MarketRegime.STABLE -> colors.primary
+                MarketRegime.SLOWDOWN -> colors.textSecondary
+                MarketRegime.CRISIS -> colors.hazard
+            }
+            Text(
+                text = "現在: ${state.marketRegime.displayName}",
+                color = regimeColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = state.marketRegime.description,
+                color = colors.textPrimary,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 15.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "レジーム転換まで: 約${state.regimeDaysLeft}日 / 施設収入倍率: ${
+                    when (state.marketRegime) {
+                        MarketRegime.BOOM -> "x1.15"
+                        MarketRegime.STABLE -> "x1.00"
+                        MarketRegime.SLOWDOWN -> "x0.90"
+                        MarketRegime.CRISIS -> "x0.70"
+                    }
+                }",
+                color = colors.textSecondary,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+
+        // 未対応の判断イベント
+        state.pendingEvent?.let { event ->
+            TerminalPanel(title = "イベント: 要判断", borderColor = colors.hazard) {
+                Text(
+                    text = event.title,
+                    color = colors.hazard,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = event.description,
+                    color = colors.textPrimary,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 16.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                event.options.forEachIndexed { index, option ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    TerminalButton(
+                        text = "${index + 1}. ${option.label}",
+                        onClick = { viewModel.resolveEvent(index) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        text = option.description,
+                        color = colors.textSecondary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        }
+
+        // 市場ニュースフィード
+        TerminalPanel(title = "市場ニュースフィード") {
+            if (state.news.isEmpty()) {
+                Text(
+                    text = "ニュースはありません。",
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            } else {
+                state.news.take(5).forEach { item ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    ) {
+                        val kindColor = when (item.kind) {
+                            "レジーム" -> colors.primary
+                            "情報" -> colors.positive
+                            "イベント" -> colors.hazard
+                            else -> colors.secondary
+                        }
+                        Text(
+                            text = "Day ${item.day} [${item.kind}] ${item.headline}",
+                            color = kindColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = item.body,
+                            color = colors.textPrimary,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
         }
 
         // コロニー買収進捗

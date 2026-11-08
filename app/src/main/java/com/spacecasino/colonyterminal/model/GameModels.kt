@@ -57,7 +57,8 @@ data class Stock(
     val history: List<Long>,
     val volatility: Double,
     val ownedShares: Long = 0L,
-    val totalCost: Long = 0L
+    val totalCost: Long = 0L,
+    val pendingShockPct: Double = 0.0
 )
 
 @Serializable
@@ -89,6 +90,42 @@ data class FxPosition(
 )
 
 @Serializable
+enum class MarketRegime(val displayName: String, val description: String) {
+    BOOM("好況ブーム", "コロニー経済が拡大局面。株価・投信は右肩上がり、施設収入も増える。"),
+    STABLE("安定期", "経済は平稳。資産は基本面に沿って緩やかに変動する。"),
+    SLOWDOWN("減速期", "景気後退の兆し。株価は緩やかに下落し、施設収入も減少。"),
+    CRISIS("恐慌", "市場パニック。株価は急落、銀行金利はゼロ、施設も苦境に。安全資産への避難が鍵。")
+}
+
+@Serializable
+data class NewsItem(
+    val id: Long,
+    val day: Long,
+    val kind: String,
+    val headline: String,
+    val body: String
+)
+
+@Serializable
+data class EventOption(
+    val label: String,
+    val description: String,
+    val creditsDelta: Long = 0L,
+    val creditsDeltaPercentOfNetWorth: Double = 0.0,
+    val creditsDeltaPercentOfCredits: Double = 0.0,
+    val facilityOutageDays: Int = 0,
+    val revealsNextRegime: Boolean = false
+)
+
+@Serializable
+data class GameEvent(
+    val id: String,
+    val title: String,
+    val description: String,
+    val options: List<EventOption>
+)
+
+@Serializable
 enum class FacilityType {
     FARM,        // 宇宙農園: 安定中収入
     GRAVITY,     // 重力維持装置: 高額、大収入、ストーリークリアフラグ
@@ -107,8 +144,11 @@ data class Facility(
     val baseCost: Long,
     val baseDailyIncome: Long,
     val level: Int = 0, // 0 = 未所持, 1以上 = 所持・アップグレード
-    val isOwned: Boolean = false
+    val isOwned: Boolean = false,
+    val outageDays: Int = 0
 ) {
+    val effectiveDailyIncome: Long
+        get() = if (!isOwned || outageDays > 0) 0L else currentDailyIncome
     val upgradeCost: Long
         get() {
             if (!isOwned) return baseCost
@@ -180,7 +220,14 @@ data class GameState(
     val achievements: List<Achievement> = emptyList(),
     val logs: List<LogEntry> = emptyList(),
     val highLow: HighLowGame = HighLowGame(),
-    val colonyPurchased: Boolean = false
+    val colonyPurchased: Boolean = false,
+    val marketRegime: MarketRegime = MarketRegime.STABLE,
+    val regimeDaysLeft: Int = 7,
+    val nextRegime: MarketRegime = MarketRegime.STABLE,
+    val news: List<NewsItem> = emptyList(),
+    val pendingEvent: GameEvent? = null,
+    val crisisWeathered: Int = 0,
+    val intelPurchasedCount: Int = 0
 ) {
     // 総資産（純資産）の計算
     val totalNetWorth: Long

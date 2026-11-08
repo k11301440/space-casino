@@ -137,16 +137,18 @@ class GameEngineTest {
         state = GameEngine.buyOrUpgradeFacility(state, "FAC_FARM")
         val currentCash = state.credits
 
-        // 1日進める
+        // 1日進める (安定期: 収入倍率x1.0、メンテ費用3%、生活コスト0.2%)
         val result = GameEngine.advanceDays(state, 1)
         assertEquals(2L, result.newState.day)
         val expectedDailyIncome = 180L + 650L
-        assertEquals(currentCash + expectedDailyIncome, result.newState.credits)
+        val expectedUpkeep = (expectedDailyIncome * 0.03).toLong()
+        val expectedLivingCost = ((state.totalNetWorth - 100000L) * 0.002).toLong()
+        assertEquals(currentCash + expectedDailyIncome - expectedUpkeep - expectedLivingCost, result.newState.credits)
 
-        // 30日進める
+        // 30日進める (レジーム移行を挟むため収支は変動する)
         val result30 = GameEngine.advanceDays(result.newState, 30)
         assertEquals(32L, result30.newState.day)
-        assertTrue("30日分の施設収入が加算されていること", result30.newState.credits > currentCash + expectedDailyIncome)
+        assertTrue("30日分の施設収入が加算されていること", result30.newState.credits > result.newState.credits)
     }
 
     @Test
@@ -354,5 +356,128 @@ class GameEngineTest {
         val advanceRes = GameEngine.advanceDays(state, 1)
         assertTrue("ロスカットされてポジションが解消されていること", advanceRes.newState.fxPositions.isEmpty())
         assertTrue("ロスカットのログが記録されていること", advanceRes.newState.logs.any { it.category == "為替" && it.message.contains("強制ロスカット") })
+    }
+
+    @Test
+    fun testLongRunStability() {
+        var state = GameEngine.createInitialState()
+        repeat(10) {
+            state = GameEngine.advanceDays(state, 30).newState
+        }
+        assertTrue("300日経過しても所持金が負にならないこと", state.credits >= 0L)
+        assertTrue("ニュースが30件上限に切り詰められていること", state.news.size <= 30)
+
+        var invested = GameEngine.createInitialState()
+        invested = GameEngine.debugAddCredits(invested, 100000L)
+        invested = GameEngine.buyOrUpgradeFacility(invested, "FAC_OXYGEN")
+        invested = GameEngine.buyOrUpgradeFacility(invested, "FAC_FARM")
+        repeat(10) {
+            invested = GameEngine.advanceDays(invested, 30).newState
+        }
+        assertTrue("施設に投資した場合は300日で純資産が大きく成長すること", invested.totalNetWorth >= 200000L)
+    }
+
+    @Test
+    fun testRegimeTransitionOnAdvance() {
+        var state = GameEngine.createInitialState()
+        val expectedNext = state.nextRegime
+        state = state.copy(regimeDaysLeft = 1)
+
+        val result = GameEngine.advanceDays(state, 1)
+        val newState = result.newState
+
+        assertEquals("レジームが事前サンプル値へ移行すること", expectedNext, newState.marketRegime)
+        assertTrue("移行後の残り日数が5..12であること", newState.regimeDaysLeft in 5..12)
+        assertTrue("移行のニュースが配信されていること", newState.news.any { it.kind == "レジーム" })
+    }
+
+    @Test
+    fun testCrisisWeatheredCounter() {
+        var state = GameEngine.createInitialState()
+        state = state.copy(marketRegime = MarketRegime.CRISIS, regimeDaysLeft = 1)
+        val result = GameEngine.advanceDays(state, 1)
+        assertEquals("恐慌を乗り切った回数がカウントされること", 1, result.newState.crisisWeathered)
+        assertTrue("実績が解除されていること", result.newState.achievements.any { it.id == "ACH_CRISIS_SURVIVOR" && it.isUnlocked })
+    }
+
+    @Test
+    fun testEventResolution() {
+        val event = GameEvent(
+            id = "EVT_TEST",
+            title = "テストイベント",
+            description = "検証用",
+            options = listOf(
+                EventOption("支払う", "説明", creditsDelta = -1000L),
+                EventOption("無視する", "説明", facilityOutageDays = 3)
+            )
+        )
+        var state = GameEngine.createInitialState()
+        state = GameEngine.debugAddCredits(state, 50000L)
+        state = GameEngine.buyOrUpgradeFacility(state, "FAC_OXYGEN")
+        state = state.copy(pendingEvent = event)
+
+        val resolved = GameEngine.resolveEvent(state, 0)
+        assertNull("イベントが解消されること", resolved.pendingEvent)
+        assertEquals("選択肢のクレジット効果が反映されること", state.credits - 1000L, resolved.credits)
+
+        val resolvedOutage = GameEngine.resolveEvent(state.copy(pendingEvent = event), 1)
+        assertTrue("施設停止が反映されること", resolvedOutage.facilities.first { it.id == "FAC_OXYGEN" }.outageDays == 3)
+
+        val afterDay = GameEngine.advanceDays(resolvedOutage, 1).newState
+        assertEquals("停止日数が1日経過で減ること", 2, afterDay.facilities.first { it.id == "FAC_OXYGEN" }.outageDays)
+    }
+
+    @Test
+    fun testIntelPurchase() {
+        val state = GameEngine.createInitialState()
+        val (newState, result) = GameEngine.buyIntel(state)
+
+        assertTrue("情報購入が成功すること", result.success)
+        assertEquals(7500L, newState.credits)
+        assertEquals(1, newState.intelPurchasedCount)
+        assertTrue("情報がニュースに記録されること", newState.news.any { it.kind == "情報" })
+        assertTrue("実績が解除されること", newState.achievements.any { it.id == "ACH_INTEL" && it.isUnlocked })
+
+        val poorState = state.copy(credits = 1000L)
+        val (rejected, rejectedResult) = GameEngine.buyIntel(poorState)
+        assertFalse("情報料不足時は購入できないこと", rejectedResult.success)
+        assertEquals(1000L, rejected.credits)
+    }
+
+    @Test
+    fun testCasinoBetCap() {
+        val state = GameEngine.createInitialState()
+
+        val (rouletteState, rouletteResult) = GameEngine.playRoulette(state, RouletteBetType.RED, 5000L)
+        assertEquals("所持金の20%超のベットは拒否されること", state.credits, rouletteState.credits)
+        assertEquals(0L, rouletteResult.payout)
+
+        val hlState = GameEngine.startHighLow(state, 5000L)
+        assertFalse(hlState.highLow.isActive)
+
+        val (slotState, slotResult) = GameEngine.playSlot(state, 5000L)
+        assertEquals(state.credits, slotState.credits)
+        assertEquals(0L, slotResult.payout)
+    }
+
+    @Test
+    fun testTieredBankInterest() {
+        var state = GameEngine.createInitialState()
+        state = GameEngine.debugAddCredits(state, 1000000L)
+        state = GameEngine.depositBank(state, 1000000L)
+
+        val result = GameEngine.advanceDays(state, 1)
+        val expectedInterest = (500000L * 0.01).toLong() + (500000L * 0.0005).toLong()
+        assertEquals("段階金利 (50万まで1%/日、超過分0.05%/日) が正しいこと", 1000000L + expectedInterest, result.newState.bank.deposited)
+    }
+
+    @Test
+    fun testPendingShockAppliedAndCleared() {
+        var state = GameEngine.createInitialState()
+        state = state.copy(
+            stocks = state.stocks.map { if (it.symbol == "ASTRO") it.copy(pendingShockPct = 0.10) else it }
+        )
+        val result = GameEngine.advanceDays(state, 1)
+        assertEquals("適用後のショックはクリアされること", 0.0, result.newState.stocks.first { it.symbol == "ASTRO" }.pendingShockPct, 0.0)
     }
 }
