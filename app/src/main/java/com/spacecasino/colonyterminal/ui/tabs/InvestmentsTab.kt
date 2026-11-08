@@ -341,6 +341,17 @@ private fun StocksSection(state: GameState, viewModel: GameViewModel) {
             val pnl = ownedVal - stock.totalCost
 
             TerminalPanel(title = "${stock.name} [${stock.symbol}]") {
+                if (stock.pendingShockPct != 0.0) {
+                    val shockUp = stock.pendingShockPct > 0
+                    Text(
+                        text = if (shockUp) "▲ 重大材料: 急騰観測の報道あり" else "▼ 重大材料: 急落観測の報道あり",
+                        color = if (shockUp) colors.positive else colors.negative,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,

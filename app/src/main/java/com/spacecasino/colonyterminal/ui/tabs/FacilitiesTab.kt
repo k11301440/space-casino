@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spacecasino.colonyterminal.model.FacilityType
 import com.spacecasino.colonyterminal.model.GameState
+import com.spacecasino.colonyterminal.model.MarketRegime
 import com.spacecasino.colonyterminal.theme.LocalTerminalColors
 import com.spacecasino.colonyterminal.ui.GameViewModel
 import com.spacecasino.colonyterminal.ui.components.*
@@ -26,7 +27,14 @@ fun FacilitiesTab(
     val colors = LocalTerminalColors.current
     val scrollState = rememberScrollState()
 
-    val totalFacilityIncome = state.facilities.filter { it.isOwned }.sumOf { it.currentDailyIncome }
+    val totalFacilityIncome = state.facilities.filter { it.isOwned && it.outageDays <= 0 }.sumOf { it.currentDailyIncome }
+
+    val regimeFacMultiplier = when (state.marketRegime) {
+        MarketRegime.BOOM -> 1.15
+        MarketRegime.STABLE -> 1.0
+        MarketRegime.SLOWDOWN -> 0.9
+        MarketRegime.CRISIS -> 0.7
+    }
 
     Column(
         modifier = modifier
@@ -52,6 +60,12 @@ fun FacilitiesTab(
                     Text(
                         text = "日数を進めるたびに手持ち現金に直接配当されます。",
                         color = colors.textSecondary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "現在のレジーム「${state.marketRegime.displayName}」では施設収入が x${regimeFacMultiplier} になる。",
+                        color = if (regimeFacMultiplier >= 1.0) colors.positive else colors.hazard,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
                     )
@@ -81,13 +95,23 @@ fun FacilitiesTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         if (isOwned) {
-                            Text(
-                                text = "現在日収: +${formatCredits(fac.currentDailyIncome)} /日",
-                                color = colors.positive,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            if (fac.outageDays > 0) {
+                                Text(
+                                    text = "⚠ 停止中 (あと${fac.outageDays}日) - 日収なし",
+                                    color = colors.hazard,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            } else {
+                                Text(
+                                    text = "現在日収: +${formatCredits(fac.currentDailyIncome)} /日 (レジーム補正後 +${formatCredits((fac.currentDailyIncome * regimeFacMultiplier).toLong())})",
+                                    color = colors.positive,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
                         if (fac.type == FacilityType.LAB && isOwned) {
                             Text(

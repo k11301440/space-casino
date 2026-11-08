@@ -26,6 +26,8 @@ sealed interface GameDialogState {
     data class StoryEvent(val milestone: StoryMilestone) : GameDialogState
     data class GameClear(val day: Long, val netWorth: Long) : GameDialogState
     data class Notice(val title: String, val message: String) : GameDialogState
+    data class EventChoice(val event: GameEvent) : GameDialogState
+    data class IntelReport(val message: String) : GameDialogState
 }
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -93,10 +95,30 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         if (result.newMilestones.isNotEmpty()) {
             pendingStoryPopups.addAll(result.newMilestones)
-            if (_currentDialog.value == null) {
-                dismissDialog() // 最初のポップアップを表示
+        }
+        if (_currentDialog.value == null) {
+            if (pendingStoryPopups.isNotEmpty()) {
+                dismissDialog()
+            } else {
+                result.newState.pendingEvent?.let { event ->
+                    _currentDialog.value = GameDialogState.EventChoice(event)
+                }
             }
         }
+    }
+
+    fun resolveEvent(optionIndex: Int) {
+        handleStateUpdate(GameEngine.resolveEvent(_gameState.value, optionIndex))
+        _currentDialog.value = null
+    }
+
+    fun buyIntel(): GameEngine.IntelResult {
+        val (newState, result) = GameEngine.buyIntel(_gameState.value)
+        if (result.success) {
+            handleStateUpdate(newState)
+            _currentDialog.value = GameDialogState.IntelReport(result.message)
+        }
+        return result
     }
 
     // --- 銀行 ---
